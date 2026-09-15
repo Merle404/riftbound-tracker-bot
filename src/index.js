@@ -5,6 +5,7 @@ const { Bot, GrammyError, HttpError } = require('grammy');
 const { Store } = require('./store');
 const { Tracker } = require('./tracker');
 const { handlers } = require('./commands');
+const betting = require('./betting');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
@@ -23,19 +24,21 @@ const tracker = new Tracker({
   store,
   intervalMs: Number(process.env.POLL_INTERVAL_SECONDS || 45) * 1000,
   dm,
-  send: async (chatKey, watch, html) => {
+  editMarkup: (chatId, msgId, keyboard) => bot.api.editMessageReplyMarkup(chatId, msgId, { reply_markup: keyboard }),
+  send: async (chatKey, watch, html, { replyMarkup = null } = {}) => {
     const post = () => bot.api.sendMessage(watch.channelId, html, {
       parse_mode: 'HTML',
       link_preview_options: { is_disabled: true },
       ...(watch.threadId ? { message_thread_id: watch.threadId } : {}),
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
     });
     try {
-      await post();
+      return await post();
     } catch (err) {
       const newId = err instanceof GrammyError ? err.parameters.migrate_to_chat_id : null;
       if (!newId) throw err;
       migrate(watch.channelId, newId);
-      await post();
+      return post();
     }
   },
 });
@@ -59,6 +62,23 @@ for (const [cmd, fn] of Object.entries(handlers)) {
   });
 }
 
+// Betting board buttons: "b:<eventId>:<matchId>:<side>".
+bot.on('callback_query:data', async (ctx) => {
+  const m = /^b:(\d+):(\d+):([01])$/.exec(ctx.callbackQuery.data);
+  if (!m) return ctx.answerCallbackQuery().catch(() => {});
+  const chat = ctx.callbackQuery.message?.chat;
+  if (!chat) return ctx.answerCallbackQuery({ text: 'This board is too old to bet on.' }).catch(() => {});
+  const key = String(chat.id);
+  const guild = store.guild(key);
+  const watch = store.watches(key)[m[1]];
+  if (!watch) return ctx.answerCallbackQuery({ text: 'This event is no longer tracked here.', show_alert: true }).catch(() => {});
+  if (!betting.enabled(guild)) return ctx.answerCallbackQuery({ text: 'Betting is turned off in this chat.', show_alert: true }).catch(() => {});
+  const res = betting.placeBet({ guild, watch, matchId: Number(m[2]), side: Number(m[3]), from: ctx.from });
+  store.save();
+  await ctx.answerCallbackQuery({ text: res.text, show_alert: !res.ok }).catch(() => {});
+  if (res.ok) await tracker.refreshBoards(watch, [Number(m[2])]);
+});
+
 bot.catch((err) => {
   const e = err.error;
   if (e instanceof GrammyError) console.error('Telegram API error:', e.description);
@@ -81,9 +101,12 @@ bot.catch((err) => {
     { command: 'pairings', description: 'Roster pairings for the current round' },
     { command: 'player', description: 'Match history of one player' },
     { command: 'legends', description: 'Legend breakdown, or /legends <legend> for its players' },
+    { command: 'bets', description: 'Betting board for the current round and your open bets' },
+    { command: 'bet', description: 'Stake coins on a player: /bet <amount> <name>' },
+    { command: 'coins', description: 'Your coins and the richest bettors' },
     { command: 'help', description: 'Show all commands' },
   ]);
   tracker.start();
   console.log('Riftbound Tracker Bot started');
-  await bot.start({ allowed_updates: ['message', 'channel_post'] });
+  await bot.start({ allowed_updates: ['message', 'channel_post', 'callback_query'] });
 })();

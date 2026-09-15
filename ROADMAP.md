@@ -15,6 +15,15 @@ where in the code it would land.
 - Entries written by the old version (`true`) are upgraded to the current outcome silently on first sight.
 - Possible follow-up: also notice a match that goes back to in-progress (status leaves `COMPLETE`).
 
+## 2b. Betting on match results — done (2026-09-15)
+- `src/betting.js`: per-chat wallets (`guild.wallets`, 100 coins + 10 a day, credited lazily), bet
+  entries per match (`watch.bets`), betting boards with inline buttons (`watch.betMsgs`), 1:1 payout,
+  refunds for draws / no result / unwatch / event end. Tracker posts the board when a round pairs and
+  settles as results come in; `bot.on('callback_query:data')` in `src/index.js` handles the taps.
+- Possible follow-ups: parimutuel odds (pool split by side) or odds from standings; a per-chat
+  season leaderboard with a reset command; re-settle when a judge corrects an already settled
+  result (today the first seen result is final); a "close bets N minutes into the round" option.
+
 ## 3. Cross-tournament stats for the roster
 - Persist every reported match (event id, round, player id, opponent id, legends, outcome, score) to
   `data/history.json` from `src/tracker.js`.

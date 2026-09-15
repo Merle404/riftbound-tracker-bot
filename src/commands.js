@@ -3,6 +3,7 @@
 const api = require('./api');
 const ed = require('./eventdata');
 const fmt = require('./format');
+const betting = require('./betting');
 const { interpretMatch, matchRoster, norm, name, fullName, legendShort } = require('./model');
 
 const HELP = `🤖 <b>Riftbound Tracker</b>
@@ -33,6 +34,12 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 /player &lt;name&gt; [event] · match history of one player
 /legends [event] · legend breakdown of the whole field
 /legends &lt;legend&gt; [event] · every player on that legend
+
+🎲 <b>Betting</b> <i>(every user starts with ${betting.START}🪙 and gets ${betting.DAILY}🪙 a day)</i>
+/bets [event] · betting board for the current round, plus your open bets
+/bet &lt;amount&gt; &lt;player&gt; · stake any amount on a player (or tap a name on the board for ${betting.STAKE}🪙)
+/coins · your balance and the richest bettors
+/betting on|off · admins: turn betting off or on for this chat
 
 <i>⭐ best-placed player on their legend in the whole event · ❤️ roster player</i>`;
 
@@ -243,9 +250,10 @@ const handlers = {
     const watches = store.watches(chatKey(ctx));
     if (!eventId || !watches[eventId]) return reply(ctx, warn('Not watching that event. See /watching.'));
     const nm = watches[eventId].name || eventId;
+    const refunded = betting.refundOpen(store.guild(chatKey(ctx)), watches[eventId]).filter((r) => r.line);
     delete watches[eventId];
     store.save();
-    await reply(ctx, `🛑 Stopped watching ${fmt.b(nm)}`);
+    await reply(ctx, `🛑 Stopped watching ${fmt.b(nm)}${refunded.length ? ` ${fmt.i(`· ${refunded.length} open bet${refunded.length === 1 ? '' : 's'} refunded`)}` : ''}`);
   },
 
   async watching(ctx, { store }) {
@@ -452,6 +460,94 @@ const handlers = {
     }
     const entry = matchRoster(store.roster(chatKey(ctx)), player);
     await reply(ctx, fmt.playerHistoryMessage({ ev, player, history, st, entry }));
+  },
+
+  // /bets [event]: (re)post the betting board for the current round and list your open bets.
+  async bets(ctx, { store, tracker }) {
+    const { eventId } = parseTarget(args(ctx));
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    if (!betting.enabled(guild)) return reply(ctx, warn('Betting is turned off in this chat. An admin can /betting on.'));
+    const ev = await loadOrExplain(ctx, store, eventId);
+    if (!ev) return;
+    const watch = store.watches(key)[ev.id];
+    if (!watch) return reply(ctx, warn(`Bets only work on watched events. /watch ${ev.url} first.`));
+    const lines = [];
+    if (ctx.from) {
+      const mine = betting.openEntries(watch).map((e) => ({ e, wg: e.wagers[String(ctx.from.id)] })).filter((x) => x.wg);
+      if (mine.length) {
+        lines.push(`${betting.COIN} ${fmt.b('Your open bets')} · ${fmt.i(`balance ${betting.coins(betting.wallet(guild, ctx.from).balance)}`)}`);
+        lines.push(fmt.quote(mine.map(({ e, wg }) => `${fmt.esc(e.roundLabel)} · ${betting.coins(wg.amount)} on ${fmt.b(e.players[wg.side].name)} ${fmt.i(`vs ${e.players[1 - wg.side].name}`)}`)));
+      }
+    }
+    const round = ev.currentRound;
+    if (!round || round.status === 'COMPLETE') {
+      lines.push(warn(round ? `${fmt.b(ev.label(round))} is over. Bets open again when the next round is paired.` : 'No round has been paired yet.'));
+      store.save();
+      return reply(ctx, lines.join('\n'));
+    }
+    if (lines.length) await reply(ctx, lines.join('\n'));
+    const st = await ed.loadStandings(ev);
+    const matches = (await api.roundMatches(round.id, { avoidCache: true })).map(interpretMatch);
+    const { matches: offered, limited } = betting.openRound({ ev, watch, round, matches, roster: store.roster(key) });
+    if (!offered.length) {
+      store.save();
+      return reply(ctx, warn(`Every match of ${fmt.b(ev.label(round))} is already finished.`));
+    }
+    for (const { html, matchIds } of betting.boardMessages({ ev, round, matches: offered, st, limited })) {
+      const sent = await ctx.reply(html, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: betting.keyboard(watch, matchIds) });
+      if (sent?.message_id) watch.betMsgs[sent.message_id] = matchIds;
+    }
+    store.save();
+  },
+
+  // /bet <amount> <player> (or "/bet <player> <amount>", "all" for everything you have).
+  async bet(ctx, { store, tracker }) {
+    if (!ctx.from) return reply(ctx, warn('Run /bet from your own account.'));
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    if (!betting.enabled(guild)) return reply(ctx, warn('Betting is turned off in this chat.'));
+    const toks = args(ctx).split(/\s+/).filter(Boolean);
+    const idx = toks.findIndex((t) => /^\d+$/.test(t) || /^all$/i.test(t));
+    const query = toks.filter((_, i) => i !== idx).join(' ');
+    if (idx < 0 || !query) return reply(ctx, usage('/bet <amount|all> <player name>'));
+    const eventId = resolveEventId(ctx, store, null);
+    const watch = eventId ? store.watches(key)[eventId] : null;
+    if (!watch) return reply(ctx, warn('Nothing is watched in this chat, so there is nothing to bet on.'));
+    const hit = betting.findOpenPlayer(watch, query);
+    if (hit.error) return reply(ctx, warn(fmt.esc(hit.error) + (Object.keys(watch.bets || {}).length ? '' : ' Post the board with /bets first.')));
+    const w = betting.wallet(guild, ctx.from);
+    const amount = /^all$/i.test(toks[idx]) ? w.balance : Number(toks[idx]);
+    const res = betting.placeBet({ guild, watch, matchId: hit.entry.matchId, side: hit.side, from: ctx.from, amount });
+    store.save();
+    if (!res.ok) return reply(ctx, warn(fmt.esc(res.text)));
+    await reply(ctx, `${fmt.esc(res.text)} ${fmt.i(`· ${hit.entry.roundLabel} vs ${hit.entry.players[1 - hit.side].name}`)}`);
+    await tracker.refreshBoards(watch, [hit.entry.matchId]);
+  },
+
+  async coins(ctx, { store }) {
+    if (!ctx.from) return reply(ctx, warn('Run /coins from your own account.'));
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    const html = betting.coinsMessage({ guild, from: ctx.from, watches: Object.values(store.watches(key)) });
+    store.save();
+    await reply(ctx, html);
+  },
+
+  // /betting on|off — admins turn the betting boards off or on for this chat.
+  async betting(ctx, { store }) {
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    const sub = args(ctx).toLowerCase();
+    if (sub !== 'on' && sub !== 'off') {
+      return reply(ctx, `🎲 Betting is ${fmt.b(betting.enabled(guild) ? 'on' : 'off')} in this chat · ${usage('/betting on|off')}`);
+    }
+    if (!(await isAllowed(ctx))) return reply(ctx, warn('Only group admins can do that.'));
+    guild.betting = sub === 'on';
+    store.save();
+    await reply(ctx, sub === 'on'
+      ? '🎲 Betting is on: I will post a betting board when a round is paired.'
+      : '🎲 Betting is off: no more boards. Open bets still settle. /betting on to turn it back on.');
   },
 };
 

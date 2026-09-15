@@ -71,11 +71,30 @@ handle. Two chats tracking the same event with the same player only produce one 
 | `/player <name> [event]` | Full match history and tiebreakers for any player in the event (not only roster). |
 | `/legends [event]` | Legend breakdown of the whole field, best-ranked pilot per legend, how many of ours play it. |
 | `/legends <legend> [event]` | Every player on that legend (e.g. `/legends kennen`), best-placed first, with record, points, `⭐` for the best-placed player and `❤️` on roster players. |
+| `/bets [event]` | Betting board for the current round (all matches with a button per player) and your open bets. |
+| `/bet <amount> <player>` | Stake any amount (or `all`) on a player in the current round. |
+| `/coins` | Your balance, record and the chat's richest bettors. |
+| `/betting on\|off` | Admins: turn the betting boards off or on for this chat. |
 
 The `[event]` argument is optional when the chat watches one event. It accepts the event URL or id.
 
 In groups, `/watch`, `/unwatch` and roster changes are admin-only. Set `ADMIN_ONLY=false` in `.env` to let
 anyone use them.
+
+### Betting
+
+When a round is paired the bot posts a **betting board** for the round: every match (at events with
+more than `BET_MAX_MATCHES` matches only the ones with roster players), with two buttons per match.
+Tapping a player's name stakes `BET_STAKE` coins (default 10) on them; tap again to add more, or use
+`/bet 25 astar` for any amount. You can only back one side of a match, and the buttons show how much
+is riding on each player.
+
+Every Telegram user has a wallet per chat: `BET_START_COINS` (default 100) to begin with, plus
+`BET_DAILY_COINS` (default 10) for every calendar day since. A won bet pays 1:1, so 10 coins on the
+winner come back as 20. Draws, double losses and matches that end without a result are refunded. Bets
+close as soon as the bot sees the match completed (within one poll interval), and the bot posts a
+"Bets settled" summary with everyone's gains, losses and new balances. `/coins` shows balances and the
+richest bettors; `/bets` reposts the board or lists your open bets; admins can `/betting off`.
 
 ### Dry run without Telegram
 
