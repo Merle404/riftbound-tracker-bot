@@ -74,6 +74,7 @@ handle. Two chats tracking the same event with the same player only produce one 
 | `/bets [event]` | Betting board for the current round (all matches with a button per player) and your open bets. |
 | `/bet <amount> <player>` | Stake any amount (or `all`) on a player in the current round. |
 | `/winner <amount> <player>` · `/winner` | Pick the event winner (open until the first result); alone, shows the pool and everyone's picks. |
+| `/wagers [event]` | Every open bet in the chat, match by match, with each side's total and backers. |
 | `/coins` | Your balance, record and the chat's richest bettors. |
 | `/donate <@handle or name> <amount>` | Give coins to someone in the chat. Replying to their message with `/donate <amount>` works too. |
 | `/betting on\|off` | Admins: turn the betting boards off or on for this chat. |
@@ -98,7 +99,7 @@ close `BET_WINDOW_MINUTES` (default 10) after the pairings went up, so nobody ca
 be nearly over before betting; the buttons show a 🔒 once the window has passed. A match that finishes
 sooner closes as soon as the bot sees it completed (within one poll interval). The bot posts a
 "Bets settled" summary with everyone's gains, losses and new balances. `/coins` shows balances and the
-richest bettors; `/bets` reposts the board or lists your open bets; admins can `/betting off`.
+richest bettors; `/bets` reposts the board or lists your open bets; `/wagers` lists everyone's open bets; admins can `/betting off`.
 
 **Event winner.** `/winner 20 astar` picks who takes the whole event, one pick per person (more coins
 can be added to the same pick). Picks are open from `/watch` until the bot sees the first real result of

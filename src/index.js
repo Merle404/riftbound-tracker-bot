@@ -120,6 +120,7 @@ bot.catch((err) => {
     { command: 'bets', description: 'Betting board for the current round and your open bets' },
     { command: 'bet', description: 'Stake coins on a player: /bet <amount> <name>' },
     { command: 'winner', description: 'Pick the event winner: /winner <amount> <name>' },
+    { command: 'wagers', description: 'Every open bet in the chat and who backs whom' },
     { command: 'coins', description: 'Your coins and the richest bettors' },
     { command: 'donate', description: 'Give coins to someone: /donate <@handle or name> <amount>' },
     { command: 'help', description: 'Show all commands' },

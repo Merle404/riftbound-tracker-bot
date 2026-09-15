@@ -415,6 +415,39 @@ function champMessage({ ev, watch, guild, from }) {
   return out.join('\n');
 }
 
+// Every open wager in the chat as shown by /wagers: each unsettled match with its backers per side.
+function wagersMessage({ ev, watch, guild }) {
+  const entries = openEntries(watch).sort((a, c) => (a.table ?? 1e9) - (c.table ?? 1e9));
+  const who = (key) => walletName(wallet(guild, { id: key }), key);
+  const rows = [];
+  let quiet = 0;
+  for (const e of entries) {
+    const wagers = Object.entries(e.wagers);
+    if (!wagers.length) { quiet++; continue; }
+    const t = e.table != null && e.table >= 0 ? `${fmt.code(`T${e.table}`)} ` : '';
+    const lock = isLocked(e) ? '🔒 ' : '';
+    const sides = [0, 1].map((side) => {
+      const list = wagers.filter(([, w]) => w.side === side).sort((a, c) => c[1].amount - a[1].amount);
+      if (!list.length) return null;
+      const backers = list.map(([key, w]) => `${fmt.esc(who(key))} ${w.amount}`).join(', ');
+      return `  ${fmt.b(e.players[side].name)} · ${coins(sideTotal(e, side))} ${fmt.i(`(${backers})`)}`;
+    }).filter(Boolean);
+    rows.push([`${lock}${t}${fmt.esc(e.roundLabel)} · ${fmt.esc(e.players[0].name)} vs ${fmt.esc(e.players[1].name)}`, ...sides].join('\n'));
+  }
+  const c = watch.champ;
+  const picks = c && !c.result ? Object.keys(c.picks).length : 0;
+  const total = entries.reduce((s, e) => s + sideTotal(e, 0) + sideTotal(e, 1), 0);
+  const state = rows.length ? `${rows.length} match${rows.length === 1 ? '' : 'es'} · ${coins(total)} at stake` : 'no open bets';
+  const out = [`🎲 ${fmt.b('Open wagers')} · ${fmt.i(state)}`];
+  if (rows.length) out.push(fmt.quote(rows.join('\n\n')));
+  const notes = [];
+  if (quiet) notes.push(`${quiet} open match${quiet === 1 ? '' : 'es'} without bets`);
+  if (picks) notes.push(`${picks} event winner pick${picks === 1 ? '' : 's'} (${coins(champPool(c))}) · /winner`);
+  if (!rows.length && !quiet) notes.push('post the board with /bets');
+  out.push(fmt.footer(ev, ...notes));
+  return out.join('\n');
+}
+
 // ---- messages for commands -----------------------------------------------------------------------
 
 function coinsMessage({ guild, from, watches }) {
@@ -454,6 +487,6 @@ module.exports = {
   wallet, wallets, walletName, enabled,
   bets, openRound, keyboard, boardMessages, buttonLabel,
   placeBet, betAnnouncement, openEntries, findOpenPlayer,
-  settle, settledMessage, refundOpen, boardsShowing, coinsMessage,
+  settle, settledMessage, refundOpen, boardsShowing, coinsMessage, wagersMessage,
   champ, closeChamp, placeChampBet, settleChamp, champMessage, donate, findWallets,
 };

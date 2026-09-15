@@ -40,6 +40,7 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 /bet &lt;amount&gt; &lt;player&gt; · stake any amount on a player (or tap a name on the board for ${betting.STAKE}🪙)
 /winner &lt;amount&gt; &lt;player&gt; · pick the event winner; the pool is split among those who got it right
 /winner · the winner pool and everyone's picks
+/wagers [event] · every open bet in the chat, with who backs whom
 /coins · your balance and the richest bettors
 /donate &lt;@handle or name&gt; &lt;amount&gt; · give coins to someone (or reply to their message with /donate &lt;amount&gt;)
 /betting on|off · admins: turn betting off or on for this chat
@@ -594,6 +595,19 @@ const handlers = {
     const res = betting.donate({ guild, from: ctx.from, to, amount });
     store.save();
     await reply(ctx, res.ok ? fmt.esc(res.text) : warn(fmt.esc(res.text)));
+  },
+
+  // /wagers [event]: every open bet in the chat, match by match, with the backers of each side.
+  async wagers(ctx, { store }) {
+    const { eventId } = parseTarget(args(ctx));
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    if (!betting.enabled(guild)) return reply(ctx, warn('Betting is turned off in this chat.'));
+    const ev = await loadOrExplain(ctx, store, eventId);
+    if (!ev) return;
+    const watch = store.watches(key)[ev.id];
+    if (!watch) return reply(ctx, warn(`Bets only work on watched events. /watch ${ev.url} first.`));
+    await reply(ctx, betting.wagersMessage({ ev, watch, guild }));
   },
 
   async coins(ctx, { store }) {
