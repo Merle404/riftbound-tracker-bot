@@ -52,7 +52,7 @@ class Tracker {
     const roster = this.store.roster(chatKey);
     const { matches: offered, limited } = betting.openRound({ ev, watch, round, matches, roster });
     if (!offered.length) return 0;
-    for (const { html, matchIds } of betting.boardMessages({ ev, round, matches: offered, st, limited })) {
+    for (const { html, matchIds } of betting.boardMessages({ ev, round, matches: offered, st, watch, limited })) {
       const sent = await this.send(chatKey, watch, html, { replyMarkup: betting.keyboard(watch, matchIds) });
       if (sent?.message_id) watch.betMsgs[sent.message_id] = matchIds;
     }
@@ -173,7 +173,12 @@ class Tracker {
       if (watch.bets) {
         for (const m of matches) {
           const entry = watch.bets[m.id];
-          if (!entry?.open || m.status !== 'COMPLETE') continue;
+          if (!entry?.open) continue;
+          if (betting.isLocked(entry) && !entry.lockShown) { // betting window over: show the locks once
+            entry.lockShown = true;
+            touched.push(m.id);
+          }
+          if (m.status !== 'COMPLETE') continue;
           const line = betting.settle(guild, entry, m);
           touched.push(m.id);
           if (line) settled.push({ roundLabel: entry.roundLabel, line });

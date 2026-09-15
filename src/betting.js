@@ -4,8 +4,9 @@
 // touched). When a round is paired the tracker posts a "betting board" with every match of the round
 // and one button per player; a tap stakes BET_STAKE coins on that player (tap again to add more),
 // /bet <amount> <name> stakes any amount. A won bet pays 1:1 (stake back plus the same again); draws,
-// double losses and matches without a result are refunded. Bets close the moment the tracker sees
-// the match completed.
+// double losses and matches without a result are refunded. Bets close BET_WINDOW_MINUTES after the
+// pairings went up (so nobody bets on a match they can already see the end of), or the moment the
+// tracker sees the match completed, whichever comes first.
 //
 // State, all inside store data:
 //   guild.wallets[tgId] = { name, username, balance, lastDaily, bets, wagered, won, lost }
@@ -22,6 +23,7 @@ const START = num(process.env.BET_START_COINS, 100);
 const DAILY = num(process.env.BET_DAILY_COINS, 10);
 const STAKE = num(process.env.BET_STAKE, 10);
 const MAX_ALL = num(process.env.BET_MAX_MATCHES, 40); // above this many matches only roster matches are offered
+const WINDOW = num(process.env.BET_WINDOW_MINUTES, 10); // minutes after the pairings during which bets are taken (0 = until the result)
 const PER_MESSAGE = 20; // matches per board message (two buttons each)
 const COIN = '🪙';
 
@@ -91,11 +93,22 @@ function openRound({ ev, watch, round, matches, roster }) {
       table: m.table,
       players: m.players.map((p) => ({ id: p.id, name: name(p), legend: legendShort(p.legend) })),
       open: true,
+      openedAt: new Date().toISOString(),
+      closesAt: WINDOW ? new Date(Date.now() + WINDOW * 60000).toISOString() : null,
       result: null,
       wagers: {},
     };
   }
   return { matches: list, limited };
+}
+
+// True while the match is unsettled but its betting window has passed.
+function isLocked(entry) {
+  return !!entry.open && !!entry.closesAt && Date.parse(entry.closesAt) <= Date.now();
+}
+
+function clock(iso) {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
 function sideTotal(entry, side) {
@@ -112,6 +125,8 @@ function buttonLabel(entry, side) {
   if (!entry.open) {
     const ws = entry.result?.winnerSide;
     mark = ws == null ? '🤝 ' : ws === side ? '✅ ' : '❌ ';
+  } else if (isLocked(entry)) {
+    mark = '🔒 ';
   }
   return `${mark}${short(entry.players[side].name)}${total ? ` · ${total}${COIN}` : ''}`;
 }
@@ -131,8 +146,9 @@ function keyboard(watch, matchIds) {
 }
 
 // The board messages for a round: [{ html, matchIds }], at most PER_MESSAGE matches each.
-function boardMessages({ ev, round, matches, st, limited = false }) {
+function boardMessages({ ev, round, matches, st, watch = null, limited = false }) {
   const out = [];
+  const closes = watch ? matches.map((m) => watch.bets?.[m.id]?.closesAt).filter(Boolean).sort()[0] : null;
   for (let i = 0; i < matches.length; i += PER_MESSAGE) {
     const slice = matches.slice(i, i + PER_MESSAGE);
     const part = matches.length > PER_MESSAGE ? ` (${i / PER_MESSAGE + 1}/${Math.ceil(matches.length / PER_MESSAGE)})` : '';
@@ -146,6 +162,7 @@ function boardMessages({ ev, round, matches, st, limited = false }) {
       return `${t}${side(m.players[0])} vs ${side(m.players[1])}`;
     });
     const notes = [`tap a name to bet ${coins(STAKE)}, tap again for more`, '/bet <amount> <name> for any stake', 'wins pay 1:1'];
+    if (closes) notes.push(Date.parse(closes) <= Date.now() ? 'bets are closed' : `bets close at ${clock(closes)}`);
     if (limited && i === 0) notes.unshift('big event: only matches with roster players');
     out.push({
       html: [head, fmt.quote(rows), fmt.footer(ev, ...notes)].join('\n'),
@@ -162,6 +179,7 @@ function placeBet({ guild, watch, matchId, side, from, amount = STAKE }) {
   const entry = bets(watch)[matchId];
   if (!entry) return { ok: false, text: 'This match is not open for bets.' };
   if (!entry.open) return { ok: false, text: `Betting on this match is closed (${entry.roundLabel}).` };
+  if (isLocked(entry)) return { ok: false, text: `Too late: bets close ${WINDOW} min after the pairings (${clock(entry.closesAt)}).` };
   if (!Number.isInteger(amount) || amount <= 0) return { ok: false, text: 'The stake must be a whole number of coins.' };
   const w = wallet(guild, from);
   const key = String(from.id);
@@ -396,7 +414,7 @@ function coinsMessage({ guild, from, watches }) {
 }
 
 module.exports = {
-  START, DAILY, STAKE, COIN, coins,
+  START, DAILY, STAKE, WINDOW, COIN, coins, isLocked,
   wallet, wallets, walletName, enabled,
   bets, openRound, keyboard, boardMessages, buttonLabel,
   placeBet, openEntries, findOpenPlayer,

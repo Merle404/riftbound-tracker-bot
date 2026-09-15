@@ -36,7 +36,7 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 /legends &lt;legend&gt; [event] · every player on that legend
 
 🎲 <b>Betting</b> <i>(every user starts with ${betting.START}🪙 and gets ${betting.DAILY}🪙 a day)</i>
-/bets [event] · betting board for the current round, plus your open bets
+/bets [event] · betting board for the current round, plus your open bets ${betting.WINDOW ? `(bets close ${betting.WINDOW} min after the pairings)` : ''}
 /bet &lt;amount&gt; &lt;player&gt; · stake any amount on a player (or tap a name on the board for ${betting.STAKE}🪙)
 /winner &lt;amount&gt; &lt;player&gt; · pick the event winner; the pool is split among those who got it right
 /winner · the winner pool and everyone's picks
@@ -499,7 +499,7 @@ const handlers = {
       store.save();
       return reply(ctx, warn(`Every match of ${fmt.b(ev.label(round))} is already finished.`));
     }
-    for (const { html, matchIds } of betting.boardMessages({ ev, round, matches: offered, st, limited })) {
+    for (const { html, matchIds } of betting.boardMessages({ ev, round, matches: offered, st, watch, limited })) {
       const sent = await ctx.reply(html, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: betting.keyboard(watch, matchIds) });
       if (sent?.message_id) watch.betMsgs[sent.message_id] = matchIds;
     }

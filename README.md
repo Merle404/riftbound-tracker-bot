@@ -93,7 +93,9 @@ is riding on each player.
 Every Telegram user has a wallet per chat: `BET_START_COINS` (default 100) to begin with, plus
 `BET_DAILY_COINS` (default 10) for every calendar day since. A won bet pays 1:1, so 10 coins on the
 winner come back as 20. Draws, double losses and matches that end without a result are refunded. Bets
-close as soon as the bot sees the match completed (within one poll interval), and the bot posts a
+close `BET_WINDOW_MINUTES` (default 10) after the pairings went up, so nobody can wait for a match to
+be nearly over before betting; the buttons show a 🔒 once the window has passed. A match that finishes
+sooner closes as soon as the bot sees it completed (within one poll interval). The bot posts a
 "Bets settled" summary with everyone's gains, losses and new balances. `/coins` shows balances and the
 richest bettors; `/bets` reposts the board or lists your open bets; admins can `/betting off`.
 
