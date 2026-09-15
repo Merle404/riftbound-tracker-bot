@@ -75,6 +75,7 @@ handle. Two chats tracking the same event with the same player only produce one 
 | `/bet <amount> <player>` | Stake any amount (or `all`) on a player in the current round. |
 | `/winner <amount> <player>` · `/winner` | Pick the event winner (open until the first result); alone, shows the pool and everyone's picks. |
 | `/coins` | Your balance, record and the chat's richest bettors. |
+| `/donate <@handle or name> <amount>` | Give coins to someone in the chat. Replying to their message with `/donate <amount>` works too. |
 | `/betting on\|off` | Admins: turn the betting boards off or on for this chat. |
 
 The `[event]` argument is optional when the chat watches one event. It accepts the event URL or id.

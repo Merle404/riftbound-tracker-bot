@@ -277,6 +277,31 @@ function boardsShowing(watch, matchIds) {
     .map(([msgId, ids]) => ({ msgId: Number(msgId), matchIds: ids }));
 }
 
+// Give coins to another user in the same chat. `to` is a Telegram user object or { id }.
+function donate({ guild, from, to, amount }) {
+  if (String(from.id) === String(to.id)) return { ok: false, text: 'You cannot donate to yourself.' };
+  if (!Number.isInteger(amount) || amount <= 0) return { ok: false, text: 'The amount must be a whole number of coins.' };
+  const giver = wallet(guild, from);
+  if (giver.balance < amount) return { ok: false, text: `Not enough coins: you have ${coins(giver.balance)}.` };
+  const taker = wallet(guild, to);
+  giver.balance -= amount;
+  taker.balance += amount;
+  giver.donated = (giver.donated || 0) + amount;
+  taker.received = (taker.received || 0) + amount;
+  return { ok: true, text: `💝 ${walletName(giver, String(from.id))} gave ${coins(amount)} to ${walletName(taker, String(to.id))} · ${walletName(giver, String(from.id))} has ${coins(giver.balance)}, ${walletName(taker, String(to.id))} has ${coins(taker.balance)}` };
+}
+
+// Find the wallets in a chat whose owner matches a query: "@handle" by username, anything else by name.
+function findWallets(guild, query) {
+  const q = norm(query);
+  if (!q) return [];
+  const all = Object.entries(wallets(guild)).map(([id, w]) => ({ id: Number(id), w }));
+  if (q.startsWith('@')) return all.filter(({ w }) => norm(w.username) === q.slice(1));
+  const exact = all.filter(({ w }) => norm(w.name) === q || norm(w.username) === q);
+  if (exact.length) return exact;
+  return all.filter(({ w }) => norm(w.name).includes(q) || norm(w.username).includes(q));
+}
+
 // ---- event winner pool ---------------------------------------------------------------------------
 // One pick per user on who wins the whole event. Everyone's stakes form a pool; when the event ends the
 // pool is split among those who picked the champion in proportion to their stakes (never less than 1:1).
@@ -419,5 +444,5 @@ module.exports = {
   bets, openRound, keyboard, boardMessages, buttonLabel,
   placeBet, openEntries, findOpenPlayer,
   settle, settledMessage, refundOpen, boardsShowing, coinsMessage,
-  champ, closeChamp, placeChampBet, settleChamp, champMessage,
+  champ, closeChamp, placeChampBet, settleChamp, champMessage, donate, findWallets,
 };

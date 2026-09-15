@@ -105,6 +105,7 @@ bot.catch((err) => {
     { command: 'bet', description: 'Stake coins on a player: /bet <amount> <name>' },
     { command: 'winner', description: 'Pick the event winner: /winner <amount> <name>' },
     { command: 'coins', description: 'Your coins and the richest bettors' },
+    { command: 'donate', description: 'Give coins to someone: /donate <@handle or name> <amount>' },
     { command: 'help', description: 'Show all commands' },
   ]);
   tracker.start();

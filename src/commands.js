@@ -41,6 +41,7 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 /winner &lt;amount&gt; &lt;player&gt; · pick the event winner; the pool is split among those who got it right
 /winner · the winner pool and everyone's picks
 /coins · your balance and the richest bettors
+/donate &lt;@handle or name&gt; &lt;amount&gt; · give coins to someone (or reply to their message with /donate &lt;amount&gt;)
 /betting on|off · admins: turn betting off or on for this chat
 
 <i>⭐ best-placed player on their legend in the whole event · ❤️ roster player</i>`;
@@ -559,6 +560,38 @@ const handlers = {
     const w = betting.wallet(guild, ctx.from);
     const amount = /^all$/i.test(rest[idx]) ? w.balance : Number(rest[idx]);
     const res = betting.placeChampBet({ guild, watch, from: ctx.from, player, amount });
+    store.save();
+    await reply(ctx, res.ok ? fmt.esc(res.text) : warn(fmt.esc(res.text)));
+  },
+
+  // /donate <@handle|name> <amount>, or reply to someone's message with "/donate <amount>".
+  async donate(ctx, { store }) {
+    if (!ctx.from) return reply(ctx, warn('Run /donate from your own account.'));
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    if (!betting.enabled(guild)) return reply(ctx, warn('Betting is turned off in this chat.'));
+    const toks = args(ctx).split(/\s+/).filter(Boolean);
+    const idx = toks.findIndex((t) => /^\d+$/.test(t) || /^all$/i.test(t));
+    const query = toks.filter((_, i) => i !== idx).join(' ');
+    if (idx < 0) return reply(ctx, usage('/donate <@handle or name> <amount|all>'));
+    let to = null;
+    const replied = ctx.msg?.reply_to_message?.from;
+    const mentioned = (ctx.msg?.entities || []).find((e) => e.type === 'text_mention')?.user; // user without a public @handle
+    if (mentioned) to = mentioned;
+    else if (query) {
+      const hits = betting.findWallets(guild, query);
+      if (hits.length === 1) to = { id: hits[0].id };
+      else if (hits.length > 1) return reply(ctx, warn(`${fmt.b(query)} matches several people: ${fmt.esc(hits.map((h) => betting.walletName(h.w, String(h.id))).join(', '))}. Use their @handle.`));
+      else if (query.startsWith('@')) {
+        const u = store.userByUsername(query); // someone who /start-ed the bot but never bet here
+        if (u) to = { id: u.tgId, first_name: u.firstName, username: u.username };
+      }
+      if (!to) return reply(ctx, warn(`I do not know ${fmt.b(query)} in this chat yet. They get a wallet the first time they bet or run /coins, or reply to one of their messages with /donate &lt;amount&gt;.`));
+    } else if (replied && !replied.is_bot) to = replied;
+    else return reply(ctx, usage('/donate <@handle or name> <amount|all>'));
+    const giver = betting.wallet(guild, ctx.from);
+    const amount = /^all$/i.test(toks[idx]) ? giver.balance : Number(toks[idx]);
+    const res = betting.donate({ guild, from: ctx.from, to, amount });
     store.save();
     await reply(ctx, res.ok ? fmt.esc(res.text) : warn(fmt.esc(res.text)));
   },
