@@ -197,6 +197,16 @@ function placeBet({ guild, watch, matchId, side, from, amount = STAKE }) {
   return { ok: true, text: `✅ ${coins(amount)} on ${p}${total !== amount ? ` (${coins(total)} in total)` : ''} · balance ${coins(w.balance)}`, entry };
 }
 
+// Public one-liner posted to the chat when someone bets from a board button (the button itself only
+// answers the tapper): "Merle put 10🪙 on Alice (30🪙 in total) · Round 3 vs Bob".
+function betAnnouncement({ guild, entry, side, from, amount = STAKE }) {
+  const key = String(from.id);
+  const who = walletName(wallet(guild, from), key);
+  const total = entry.wagers[key]?.amount ?? amount;
+  const more = total !== amount ? ` ${fmt.i(`(${coins(total)} in total)`)}` : '';
+  return `🎲 ${fmt.b(who)} put ${fmt.b(coins(amount))} on ${fmt.b(entry.players[side].name)}${more} ${fmt.i(`· ${entry.roundLabel} vs ${entry.players[1 - side].name}`)}`;
+}
+
 // Open bet entries of a watch, optionally only those of one round.
 function openEntries(watch, roundId = null) {
   return Object.values(bets(watch)).filter((e) => e.open && (roundId == null || e.roundId === roundId));
@@ -442,7 +452,7 @@ module.exports = {
   START, DAILY, STAKE, WINDOW, COIN, coins, isLocked,
   wallet, wallets, walletName, enabled,
   bets, openRound, keyboard, boardMessages, buttonLabel,
-  placeBet, openEntries, findOpenPlayer,
+  placeBet, betAnnouncement, openEntries, findOpenPlayer,
   settle, settledMessage, refundOpen, boardsShowing, coinsMessage,
   champ, closeChamp, placeChampBet, settleChamp, champMessage, donate, findWallets,
 };

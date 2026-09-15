@@ -73,10 +73,15 @@ bot.on('callback_query:data', async (ctx) => {
   const watch = store.watches(key)[m[1]];
   if (!watch) return ctx.answerCallbackQuery({ text: 'This event is no longer tracked here.', show_alert: true }).catch(() => {});
   if (!betting.enabled(guild)) return ctx.answerCallbackQuery({ text: 'Betting is turned off in this chat.', show_alert: true }).catch(() => {});
-  const res = betting.placeBet({ guild, watch, matchId: Number(m[2]), side: Number(m[3]), from: ctx.from });
+  const side = Number(m[3]);
+  const res = betting.placeBet({ guild, watch, matchId: Number(m[2]), side, from: ctx.from });
   store.save();
   await ctx.answerCallbackQuery({ text: res.text, show_alert: !res.ok }).catch(() => {});
-  if (res.ok) await tracker.refreshBoards(watch, [Number(m[2])]);
+  if (!res.ok) return;
+  // Tell the chat who bet on whom (the popup above is only seen by the tapper).
+  await tracker.send(key, watch, betting.betAnnouncement({ guild, entry: res.entry, side, from: ctx.from }))
+    .catch((err) => console.error('bet announcement failed:', err.description || err.message));
+  await tracker.refreshBoards(watch, [Number(m[2])]);
 });
 
 bot.catch((err) => {
