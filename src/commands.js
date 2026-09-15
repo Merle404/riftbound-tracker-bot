@@ -38,6 +38,8 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 🎲 <b>Betting</b> <i>(every user starts with ${betting.START}🪙 and gets ${betting.DAILY}🪙 a day)</i>
 /bets [event] · betting board for the current round, plus your open bets
 /bet &lt;amount&gt; &lt;player&gt; · stake any amount on a player (or tap a name on the board for ${betting.STAKE}🪙)
+/winner &lt;amount&gt; &lt;player&gt; · pick the event winner; the pool is split among those who got it right
+/winner · the winner pool and everyone's picks
 /coins · your balance and the richest bettors
 /betting on|off · admins: turn betting off or on for this chat
 
@@ -240,6 +242,7 @@ const handlers = {
         lines.push(fmt.standingsMessage({ ev, st, roster, counts, title: 'Current standings' }));
       }
     }
+    if (betting.enabled(store.guild(key)) && betting.champ(watch).open) lines.push(`🏆 Winner bets are open · ${fmt.code('/winner <amount> <player>')}`);
     if (backfill) lines.push(fmt.i('Backfill posted above.'));
     await reply(ctx, lines.join('\n'));
   },
@@ -250,7 +253,9 @@ const handlers = {
     const watches = store.watches(chatKey(ctx));
     if (!eventId || !watches[eventId]) return reply(ctx, warn('Not watching that event. See /watching.'));
     const nm = watches[eventId].name || eventId;
-    const refunded = betting.refundOpen(store.guild(chatKey(ctx)), watches[eventId]).filter((r) => r.line);
+    const guild = store.guild(chatKey(ctx));
+    const refunded = betting.refundOpen(guild, watches[eventId]).filter((r) => r.line);
+    if (betting.settleChamp(guild, watches[eventId], null)) refunded.push({ champ: true });
     delete watches[eventId];
     store.save();
     await reply(ctx, `🛑 Stopped watching ${fmt.b(nm)}${refunded.length ? ` ${fmt.i(`· ${refunded.length} open bet${refunded.length === 1 ? '' : 's'} refunded`)}` : ''}`);
@@ -523,6 +528,39 @@ const handlers = {
     if (!res.ok) return reply(ctx, warn(fmt.esc(res.text)));
     await reply(ctx, `${fmt.esc(res.text)} ${fmt.i(`· ${hit.entry.roundLabel} vs ${hit.entry.players[1 - hit.side].name}`)}`);
     await tracker.refreshBoards(watch, [hit.entry.matchId]);
+  },
+
+  // /winner [amount] [player]: pick the event champion, or show the pool.
+  async winner(ctx, { store }) {
+    const key = chatKey(ctx);
+    const guild = store.guild(key);
+    if (!betting.enabled(guild)) return reply(ctx, warn('Betting is turned off in this chat.'));
+    // Every number is a stake here (not a round or event id); an event is given by its URL.
+    const toks = args(ctx).split(/\s+/).filter(Boolean);
+    const eventId = api.parseEventId(toks.find((t) => /\/events\/\d+/.test(t)) || '');
+    const rest = toks.filter((t) => !/\/events\/\d+/.test(t));
+    const ev = await loadOrExplain(ctx, store, eventId);
+    if (!ev) return;
+    const watch = store.watches(key)[ev.id];
+    if (!watch) return reply(ctx, warn(`Bets only work on watched events. /watch ${ev.url} first.`));
+    const idx = rest.findIndex((t) => /^\d+$/.test(t) || /^all$/i.test(t));
+    const query = rest.filter((_, i) => i !== idx).join(' ');
+    if (!query && idx < 0) {
+      await reply(ctx, betting.champMessage({ ev, watch, guild, from: ctx.from }));
+      store.save();
+      return;
+    }
+    if (!ctx.from) return reply(ctx, warn('Run /winner from your own account.'));
+    if (idx < 0 || !query) return reply(ctx, usage('/winner <amount|all> <player name>'));
+    if (!betting.champ(watch).open) return reply(ctx, warn('Winner bets are closed: the first results are already in.'));
+    const players = await ed.loadPlayers(ev);
+    const player = ed.findPlayerByName(players, query);
+    if (!player) return reply(ctx, warn(`No player matching ${fmt.b(query)} in ${fmt.esc(ev.name)}.`));
+    const w = betting.wallet(guild, ctx.from);
+    const amount = /^all$/i.test(rest[idx]) ? w.balance : Number(rest[idx]);
+    const res = betting.placeChampBet({ guild, watch, from: ctx.from, player, amount });
+    store.save();
+    await reply(ctx, res.ok ? fmt.esc(res.text) : warn(fmt.esc(res.text)));
   },
 
   async coins(ctx, { store }) {

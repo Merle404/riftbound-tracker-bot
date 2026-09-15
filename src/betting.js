@@ -259,6 +259,108 @@ function boardsShowing(watch, matchIds) {
     .map(([msgId, ids]) => ({ msgId: Number(msgId), matchIds: ids }));
 }
 
+// ---- event winner pool ---------------------------------------------------------------------------
+// One pick per user on who wins the whole event. Everyone's stakes form a pool; when the event ends the
+// pool is split among those who picked the champion in proportion to their stakes (never less than 1:1).
+// Nobody right, or no final standings: everyone is refunded. Picks close at the first reported result.
+//   watch.champ = { open, closedAt, picks: { [tgId]: { playerId, name, amount, at } }, result: null | { playerId, name } }
+
+function champ(watch) {
+  if (!watch.champ) watch.champ = { open: true, closedAt: null, picks: {}, result: null };
+  return watch.champ;
+}
+
+function closeChamp(watch) {
+  const c = champ(watch);
+  if (!c.open) return false;
+  c.open = false;
+  c.closedAt = new Date().toISOString();
+  return true;
+}
+
+function champPool(c) {
+  return Object.values(c.picks).reduce((s, p) => s + p.amount, 0);
+}
+
+// Stake `amount` on `player` (a model player object) winning the event.
+function placeChampBet({ guild, watch, from, player, amount }) {
+  const c = champ(watch);
+  if (!c.open) return { ok: false, text: 'Winner bets are closed: the first results are already in.' };
+  if (!Number.isInteger(amount) || amount <= 0) return { ok: false, text: 'The stake must be a whole number of coins.' };
+  if (player.status === 'DROPPED') return { ok: false, text: `${name(player)} has dropped from the event.` };
+  const w = wallet(guild, from);
+  const key = String(from.id);
+  const mine = c.picks[key];
+  if (mine && mine.playerId !== player.id) return { ok: false, text: `You already have ${coins(mine.amount)} on ${mine.name}. One pick per person!` };
+  if (w.balance < amount) return { ok: false, text: `Not enough coins: you have ${coins(w.balance)}.` };
+  w.balance -= amount;
+  w.wagered += amount;
+  if (!mine) w.bets++;
+  c.picks[key] = { playerId: player.id, name: name(player), amount: (mine?.amount || 0) + amount, at: new Date().toISOString() };
+  const total = c.picks[key].amount;
+  return { ok: true, text: `🏆 ${coins(amount)} on ${name(player)} to win the event${total !== amount ? ` (${coins(total)} in total)` : ''} · balance ${coins(w.balance)} · pool ${coins(champPool(c))}` };
+}
+
+// Pay out the winner pool. `winner` is the champion (a standings row) or null to refund everyone.
+// Returns the summary line for the post, or null when nobody had a pick.
+function settleChamp(guild, watch, winner) {
+  const c = champ(watch);
+  if (c.result) return null;
+  c.open = false;
+  c.result = { playerId: winner?.id ?? null, name: winner ? name(winner) : null, settledAt: new Date().toISOString() };
+  const picks = Object.entries(c.picks);
+  if (!picks.length) return null;
+  const pool = champPool(c);
+  const right = picks.filter(([, p]) => winner && p.playerId === winner.id);
+  const rightTotal = right.reduce((s, [, p]) => s + p.amount, 0);
+  const refund = !winner || !right.length;
+  const deltas = [];
+  for (const [key, p] of picks) {
+    const w = wallet(guild, { id: key });
+    let delta;
+    if (refund) { w.balance += p.amount; delta = 0; }
+    else if (p.playerId === winner.id) {
+      const payout = Math.max(2 * p.amount, Math.floor((pool * p.amount) / rightTotal));
+      w.balance += payout; w.won += payout - p.amount; delta = payout - p.amount;
+    } else { w.lost += p.amount; delta = -p.amount; }
+    p.delta = delta;
+    deltas.push({ key, w, delta });
+  }
+  deltas.sort((a, c2) => c2.delta - a.delta);
+  const head = !winner ? '🤝 No final standings · winner picks refunded'
+    : refund ? `🏆 ${fmt.b(name(winner))} won the event · nobody picked them, stakes refunded`
+      : `🏆 ${fmt.b(name(winner))} won the event · pool ${coins(pool)}`;
+  const people = deltas.map(({ key, w, delta }) => {
+    const sign = delta > 0 ? `+${delta}` : delta < 0 ? `−${-delta}` : '±0';
+    return `${fmt.esc(walletName(w, key))} ${fmt.b(sign)} ${fmt.i(`(${w.balance})`)}`;
+  });
+  return `${head}\n${fmt.i('→')} ${people.join(', ')}`;
+}
+
+// The winner pool as shown by /winner: state, every pick with its backers, and the caller's own pick.
+function champMessage({ ev, watch, guild, from }) {
+  const c = champ(watch);
+  const byPlayer = new Map();
+  for (const [key, p] of Object.entries(c.picks)) {
+    if (!byPlayer.has(p.playerId)) byPlayer.set(p.playerId, { name: p.name, total: 0, backers: [] });
+    const g = byPlayer.get(p.playerId);
+    g.total += p.amount;
+    g.backers.push(walletName(wallet(guild, { id: key }), key));
+  }
+  const pool = champPool(c);
+  const state = c.result ? `settled · ${c.result.name ? `${c.result.name} won` : 'refunded'}` : c.open ? 'open until the first result' : 'closed';
+  const out = [`🏆 ${fmt.b('Event winner bets')} · ${fmt.i(state)}`];
+  const rows = [...byPlayer.values()].sort((a, b) => b.total - a.total)
+    .map((g) => `${fmt.b(g.name)} · ${coins(g.total)} ${fmt.i(`(${g.backers.join(', ')})`)}`);
+  out.push(rows.length ? fmt.quote([`Pool · ${fmt.b(coins(pool))}`, ...rows]) : fmt.i('No picks yet.'));
+  const mine = from && c.picks[String(from.id)];
+  if (mine) out.push(`Your pick · ${fmt.b(mine.name)} with ${coins(mine.amount)}`);
+  const notes = ['pool split among those who picked the champion, at least 1:1'];
+  if (c.open) notes.unshift('/winner <amount> <name>');
+  out.push(fmt.footer(ev, ...notes));
+  return out.join('\n');
+}
+
 // ---- messages for commands -----------------------------------------------------------------------
 
 function coinsMessage({ guild, from, watches }) {
@@ -270,6 +372,8 @@ function coinsMessage({ guild, from, watches }) {
       const wg = e.wagers[key];
       if (wg) open.push(`${fmt.esc(e.roundLabel)} · ${coins(wg.amount)} on ${fmt.b(e.players[wg.side].name)} ${fmt.i(`vs ${e.players[1 - wg.side].name}`)}`);
     }
+    const pick = w.champ && !w.champ.result ? w.champ.picks[key] : null;
+    if (pick) open.push(`🏆 Event winner · ${coins(pick.amount)} on ${fmt.b(pick.name)}${w.name ? ` ${fmt.i(`(${w.name})`)}` : ''}`);
   }
   const mine = [
     `Balance · ${fmt.b(coins(me.balance))}${open.length ? ` · ${fmt.i(`${open.length} open bet${open.length === 1 ? '' : 's'}`)}` : ''}`,
@@ -297,4 +401,5 @@ module.exports = {
   bets, openRound, keyboard, boardMessages, buttonLabel,
   placeBet, openEntries, findOpenPlayer,
   settle, settledMessage, refundOpen, boardsShowing, coinsMessage,
+  champ, closeChamp, placeChampBet, settleChamp, champMessage,
 };

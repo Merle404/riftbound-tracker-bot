@@ -103,6 +103,7 @@ bot.catch((err) => {
     { command: 'legends', description: 'Legend breakdown, or /legends <legend> for its players' },
     { command: 'bets', description: 'Betting board for the current round and your open bets' },
     { command: 'bet', description: 'Stake coins on a player: /bet <amount> <name>' },
+    { command: 'winner', description: 'Pick the event winner: /winner <amount> <name>' },
     { command: 'coins', description: 'Your coins and the richest bettors' },
     { command: 'help', description: 'Show all commands' },
   ]);

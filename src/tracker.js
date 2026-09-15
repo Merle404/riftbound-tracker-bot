@@ -124,6 +124,11 @@ class Tracker {
       const matches = (await api.roundMatches(round.id, { avoidCache: live }))
         .map(interpretMatch)
         .filter((m) => !m.ghost);
+      // Winner picks close as soon as any real result of the event is in.
+      if (betting.champ(watch).open && matches.some((m) => m.status === 'COMPLETE' && !m.isBye)) {
+        betting.closeChamp(watch);
+        if (Object.keys(watch.champ.picks).length) await post(`🏆 ${fmt.b('Winner bets are closed')} · ${fmt.i('the first results are in · /winner shows the pool')}`);
+      }
       const ours = [];
       for (const m of matches) {
         const hits = m.players.map((p) => ({ p, entry: matchRoster(roster, p) })).filter((h) => h.entry);
@@ -204,8 +209,11 @@ class Tracker {
     if (ev.lifecycle === 'EVENT_FINISHED') {
       watch.finished = true;
       const refunded = betting.refundOpen(guild, watch);
-      const lines = refunded.filter((r) => r.line);
-      if (lines.length) await post(betting.settledMessage({ ev, roundLabel: 'Event over', lines: lines.map((r) => r.line) }));
+      const lines = refunded.filter((r) => r.line).map((r) => r.line);
+      const champion = st ? st.rows.find((r) => r.rank === 1) || st.rows[0] : null;
+      const champLine = betting.settleChamp(guild, watch, champion || null);
+      if (champLine) lines.push(champLine);
+      if (lines.length) await post(betting.settledMessage({ ev, roundLabel: 'Event over', lines }));
       if (refunded.length) await this.refreshBoards(watch, refunded.map((r) => r.entry.matchId));
       if (st && roster.length) await post(fmt.finalMessage({ ev, st, roster, counts: cnt }));
     }

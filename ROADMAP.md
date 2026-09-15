@@ -20,6 +20,8 @@ where in the code it would land.
   entries per match (`watch.bets`), betting boards with inline buttons (`watch.betMsgs`), 1:1 payout,
   refunds for draws / no result / unwatch / event end. Tracker posts the board when a round pairs and
   settles as results come in; `bot.on('callback_query:data')` in `src/index.js` handles the taps.
+- Event winner pool (`watch.champ`): `/winner <amount> <name>`, closes at the first real result,
+  parimutuel split (min 1:1) on `EVENT_FINISHED` using rank 1 of the latest standings.
 - Possible follow-ups: parimutuel odds (pool split by side) or odds from standings; a per-chat
   season leaderboard with a reset command; re-settle when a judge corrects an already settled
   result (today the first seen result is final); a "close bets N minutes into the round" option.
