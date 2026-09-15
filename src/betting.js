@@ -12,7 +12,8 @@
 //   guild.wallets[tgId] = { name, username, balance, lastDaily, bets, wagered, won, lost }
 //   guild.betting       = false when an admin turned betting off for the chat
 //   watch.bets[matchId] = { matchId, roundId, roundLabel, table, players: [{ id, name, legend }],
-//                           open, result: null | { winnerSide: 0|1|null }, wagers: { [tgId]: { side, amount } } }
+//                           open, result: null | { winnerSide: 0|1|null },
+//                           wagers: { [tgId]: { side, amount, msgId } } }   // msgId: the wager's chat announcement
 //   watch.betMsgs[msgId] = [matchId, ...]   // betting boards posted, so their buttons can be refreshed
 const { InlineKeyboard } = require('grammy');
 const { name, legendShort, record, outcomeFor, norm, matchRoster } = require('./model');
@@ -191,20 +192,20 @@ function placeBet({ guild, watch, matchId, side, from, amount = STAKE }) {
   w.balance -= amount;
   w.wagered += amount;
   if (!mine) w.bets++;
-  entry.wagers[key] = { side, amount: (mine?.amount || 0) + amount, at: new Date().toISOString() };
+  entry.wagers[key] = { ...mine, side, amount: (mine?.amount || 0) + amount, at: new Date().toISOString() };
   const p = entry.players[side].name;
   const total = entry.wagers[key].amount;
   return { ok: true, text: `✅ ${coins(amount)} on ${p}${total !== amount ? ` (${coins(total)} in total)` : ''} · balance ${coins(w.balance)}`, entry };
 }
 
 // Public one-liner posted to the chat when someone bets from a board button (the button itself only
-// answers the tapper): "Merle put 10🪙 on Alice (30🪙 in total) · Round 3 vs Bob".
+// answers the tapper): "Merle put 30🪙 on Alice · Round 3 vs Bob". It shows the user's whole stake on
+// the match: every further tap edits the same message (see index.js) instead of posting another one.
 function betAnnouncement({ guild, entry, side, from, amount = STAKE }) {
   const key = String(from.id);
   const who = walletName(wallet(guild, from), key);
   const total = entry.wagers[key]?.amount ?? amount;
-  const more = total !== amount ? ` ${fmt.i(`(${coins(total)} in total)`)}` : '';
-  return `🎲 ${fmt.b(who)} put ${fmt.b(coins(amount))} on ${fmt.b(entry.players[side].name)}${more} ${fmt.i(`· ${entry.roundLabel} vs ${entry.players[1 - side].name}`)}`;
+  return `🎲 ${fmt.b(who)} put ${fmt.b(coins(total))} on ${fmt.b(entry.players[side].name)} ${fmt.i(`· ${entry.roundLabel} vs ${entry.players[1 - side].name}`)}`;
 }
 
 // Open bet entries of a watch, optionally only those of one round.

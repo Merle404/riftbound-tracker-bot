@@ -78,9 +78,20 @@ bot.on('callback_query:data', async (ctx) => {
   store.save();
   await ctx.answerCallbackQuery({ text: res.text, show_alert: !res.ok }).catch(() => {});
   if (!res.ok) return;
-  // Tell the chat who bet on whom (the popup above is only seen by the tapper).
-  await tracker.send(key, watch, betting.betAnnouncement({ guild, entry: res.entry, side, from: ctx.from }))
-    .catch((err) => console.error('bet announcement failed:', err.description || err.message));
+  // Tell the chat who bet on whom (the popup above is only seen by the tapper). Repeated taps on the
+  // same player update the announcement in place, so a 100🪙 bet is one message, not ten.
+  const html = betting.betAnnouncement({ guild, entry: res.entry, side, from: ctx.from });
+  const wager = res.entry.wagers[String(ctx.from.id)];
+  let edited = false;
+  if (wager.msgId) {
+    edited = await bot.api.editMessageText(watch.channelId, wager.msgId, html, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } })
+      .then(() => true, (err) => { console.error('bet announcement edit failed:', err.description || err.message); return false; });
+  }
+  if (!edited) { // first bet on this match, or the old announcement is gone: post a fresh one
+    const sent = await tracker.send(key, watch, html)
+      .catch((err) => console.error('bet announcement failed:', err.description || err.message));
+    if (sent?.message_id) { wager.msgId = sent.message_id; store.save(); }
+  }
   await tracker.refreshBoards(watch, [Number(m[2])]);
 });
 
