@@ -45,11 +45,11 @@ Besides the group post, every roster player can get their own pairing and result
 
 1. The player opens a private chat with the bot and sends `/start` (Telegram only lets bots message
    people who did this).
-2. If an admin added them with their handle (`/team add astar @alice`), they are linked right away.
+2. If a teammate added them with their handle (`/team add astar @alice`), they are linked right away.
    Otherwise they send `/link astar` to the bot, in the DM or in the group.
 
-`/team list` shows `🔗 DM` next to linked players. `/unlink` stops the alerts; in a group an admin can
-`/unlink <name>` for anyone. A name whose roster entry carries an `@handle` can only be linked by that
+`/team list` shows `🔗 DM` next to linked players. `/unlink` stops the alerts; in a group anyone can
+`/unlink <name>` for any roster entry. A name whose roster entry carries an `@handle` can only be linked by that
 handle. Two chats tracking the same event with the same player only produce one DM.
 
 ## Commands
@@ -62,7 +62,7 @@ handle. Two chats tracking the same event with the same player only produce one 
 | `/team add <name> [@handle] [id:123]` | Add a roster player. The @handle is pinged in their reports. `id:` pins a Spicerack user id if two players share a name. |
 | `/team remove <name>` · `/team import a, b, c` · `/team list` · `/team clear` | Roster management. |
 | `/link <roster name>` | Link your Telegram account to a roster player to get pairings and results by DM (send the bot `/start` in private first). |
-| `/unlink [name]` | Stop DM alerts. Admins can unlink anyone in their group. |
+| `/unlink [name]` | Stop DM alerts. In a group, any member can unlink any roster entry. |
 | `/status [event]` | Lifecycle, current round and progress, round timer, players left. |
 | `/players [event]` | Total players, still playing, dropped. |
 | `/leaderboard [event]` | Roster players sorted by rank with record, points, legend and ⭐ for the best-placed player on a legend. |
@@ -81,8 +81,7 @@ handle. Two chats tracking the same event with the same player only produce one 
 
 The `[event]` argument is optional when the chat watches one event. It accepts the event URL or id.
 
-In groups, `/watch`, `/unwatch` and roster changes are admin-only. Set `ADMIN_ONLY=false` in `.env` to let
-anyone use them.
+In groups, only `/betting on|off` is admin-only. Set `ADMIN_ONLY=false` in `.env` to let anyone use it.
 
 ### Betting
 

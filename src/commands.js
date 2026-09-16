@@ -109,7 +109,7 @@ const handlers = {
         lines.push(`🔗 Linked you to ${names(linked)} ${fmt.i(`(matched your @${ctx.from.username})`)}`);
       } else {
         lines.push('To get alerts, link yourself to a roster player: /link &lt;roster name&gt;');
-        lines.push(fmt.i('or ask a team admin to add you with /team add <name> @yourhandle'));
+        lines.push(fmt.i('or ask a teammate to add you with /team add <name> @yourhandle'));
       }
       await reply(ctx, lines.join('\n'));
     }
@@ -128,7 +128,7 @@ const handlers = {
       .filter(({ entry }) => norm(entry.name) === norm(query));
     if (!candidates.length) {
       return reply(ctx, warn(priv
-        ? `No roster player called ${fmt.b(query)} in any chat I know. Ask a team admin to /team add you first.`
+        ? `No roster player called ${fmt.b(query)} in any chat I know. Ask a teammate to /team add you first.`
         : `${fmt.b(query)} is not on this chat's roster. See /team list.`));
     }
     const me = ctx.from.id;
@@ -138,7 +138,7 @@ const handlers = {
     for (const { entry } of candidates) {
       const handle = (entry.tg || '').replace(/^@/, '').toLowerCase();
       if (handle && handle !== myHandle) { refused.push(`${entry.name}: reserved for @${handle}`); continue; }
-      if (entry.tgId && Number(entry.tgId) !== me) { refused.push(`${entry.name}: already linked to someone else (an admin can /unlink it)`); continue; }
+      if (entry.tgId && Number(entry.tgId) !== me) { refused.push(`${entry.name}: already linked to someone else (someone in the group can /unlink it)`); continue; }
       entry.tgId = me;
       if (!entry.tg && ctx.from.username) { entry.tg = '@' + ctx.from.username; entry.tgAuto = true; } // so group pings work too
       done.push(entry);
@@ -167,7 +167,7 @@ const handlers = {
     await reply(ctx, lines.join('\n'));
   },
 
-  // /unlink [name]: your own links (DM or group), or any entry in this chat if you are an admin.
+  // /unlink [name]: your own links in a DM, or any entry in this chat when run in a group.
   async unlink(ctx, { store }) {
     if (!ctx.from) return reply(ctx, warn('Run /unlink from your own account.'));
     const query = args(ctx);
@@ -175,20 +175,17 @@ const handlers = {
     const pool = priv ? store.allRosterEntries() : store.roster(chatKey(ctx)).map((entry) => ({ chatKey: chatKey(ctx), entry }));
     let targets = pool.filter(({ entry }) => entry.tgId != null && (!query || norm(entry.name) === norm(query)));
     const mine = targets.filter(({ entry }) => Number(entry.tgId) === ctx.from.id);
-    if (mine.length < targets.length) {
-      if (priv || !(await isAllowed(ctx))) targets = mine;
-    }
+    if (priv) targets = mine;
     if (!targets.length) return reply(ctx, warn(query ? `${fmt.b(query)} is not linked to you.` : 'Nothing is linked to you.'));
     for (const { entry } of targets) {
       entry.tgId = null;
-      if (entry.tgAuto) { entry.tg = null; delete entry.tgAuto; } // handle came from /link, not from an admin
+      if (entry.tgAuto) { entry.tg = null; delete entry.tgAuto; } // handle came from /link, not from /team add
     }
     store.save();
     await reply(ctx, `🔕 Unlinked ${names(targets.map((t) => t.entry))} ${fmt.i('· no more DM alerts')}`);
   },
 
   async watch(ctx, { store, tracker }) {
-    if (!(await isAllowed(ctx))) return reply(ctx, warn('Only group admins can do that.'));
     const text = args(ctx);
     const eventId = api.parseEventId(text.split(/\s+/)[0]);
     if (!eventId) return reply(ctx, usage('/watch https://locator.riftbound.uvsgames.com/events/926094 [backfill]'));
@@ -250,7 +247,6 @@ const handlers = {
   },
 
   async unwatch(ctx, { store }) {
-    if (!(await isAllowed(ctx))) return reply(ctx, warn('Only group admins can do that.'));
     const eventId = api.parseEventId(args(ctx)) || resolveEventId(ctx, store, null);
     const watches = store.watches(chatKey(ctx));
     if (!eventId || !watches[eventId]) return reply(ctx, warn('Not watching that event. See /watching.'));
@@ -293,8 +289,6 @@ const handlers = {
       });
       return reply(ctx, [`👥 ${fmt.b('Roster')} · ${roster.length} player${roster.length === 1 ? '' : 's'}`, fmt.quote(rows)].join('\n'));
     }
-
-    if (!(await isAllowed(ctx))) return reply(ctx, warn('Only group admins can change the roster.'));
 
     // "/team add a, b, c" is almost always a mislabelled import: treat it as one.
     if (sub === 'add' && rest.includes(',')) sub = 'import';
