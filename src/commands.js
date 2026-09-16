@@ -44,6 +44,7 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 /coins · your balance and the richest bettors
 /donate &lt;@handle or name&gt; &lt;amount&gt; · give coins to someone (or reply to their message with /donate &lt;amount&gt;)
 /betting on|off · admins: turn betting off or on for this chat
+<i>In a private chat /coins, /bets and /wagers just show your coins and open bets from every group you bet in.</i>
 
 <i>⭐ best-placed player on their legend in the whole event · ❤️ roster player</i>`;
 
@@ -53,6 +54,15 @@ function args(ctx) {
 }
 
 function chatKey(ctx) { return String(ctx.chat.id); }
+function isPrivate(ctx) { return ctx.chat.type === 'private'; }
+
+// In a DM the betting commands only report: your balance and open bets in every chat you bet in.
+async function myCoins(ctx, store) {
+  if (!ctx.from) return reply(ctx, warn('Run this from your own account.'));
+  const html = betting.myCoinsMessage({ chats: store.guildsWithWallet(ctx.from.id), from: ctx.from });
+  store.save();
+  await reply(ctx, html);
+}
 
 async function isAllowed(ctx) {
   if (process.env.ADMIN_ONLY === 'false') return true;
@@ -465,6 +475,7 @@ const handlers = {
 
   // /bets [event]: (re)post the betting board for the current round and list your open bets.
   async bets(ctx, { store, tracker }) {
+    if (isPrivate(ctx)) return myCoins(ctx, store);
     const { eventId } = parseTarget(args(ctx));
     const key = chatKey(ctx);
     const guild = store.guild(key);
@@ -593,6 +604,7 @@ const handlers = {
 
   // /wagers [event]: every open bet in the chat, match by match, with the backers of each side.
   async wagers(ctx, { store }) {
+    if (isPrivate(ctx)) return myCoins(ctx, store);
     const { eventId } = parseTarget(args(ctx));
     const key = chatKey(ctx);
     const guild = store.guild(key);
@@ -606,6 +618,7 @@ const handlers = {
 
   async coins(ctx, { store }) {
     if (!ctx.from) return reply(ctx, warn('Run /coins from your own account.'));
+    if (isPrivate(ctx)) return myCoins(ctx, store);
     const key = chatKey(ctx);
     const guild = store.guild(key);
     const html = betting.coinsMessage({ guild, from: ctx.from, watches: Object.values(store.watches(key)) });

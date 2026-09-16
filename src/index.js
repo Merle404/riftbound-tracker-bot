@@ -54,6 +54,7 @@ const deps = { store, tracker, dm, log: console };
 for (const [cmd, fn] of Object.entries(handlers)) {
   bot.command(cmd, async (ctx) => {
     try {
+      if (ctx.chat.type !== 'private' && ctx.chat.title) store.guild(String(ctx.chat.id)).title = ctx.chat.title;
       await fn(ctx, deps);
     } catch (err) {
       console.error(`/${cmd} failed:`, err);

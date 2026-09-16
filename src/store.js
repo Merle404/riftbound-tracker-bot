@@ -4,7 +4,7 @@ const path = require('path');
 
 // Tiny JSON-file persistence. Shape:
 // {
-//   guilds: { [chatId]: { roster: [{ name, tg?, id?, tgId? }], watches: { [eventId]: {...} } } },
+//   guilds: { [chatId]: { title?, roster: [{ name, tg?, id?, tgId? }], watches: { [eventId]: {...} } } },
 //   users:  { [tgId]: { username, firstName, startedAt, dmSent: { [key]: true } } }  // people who DM'd /start
 // }
 class Store {
@@ -69,6 +69,15 @@ class Store {
       for (const entry of g.roster || []) out.push({ chatKey, entry });
     }
     return out;
+  }
+
+  // Every chat where a Telegram user has a betting wallet, with its chat key. Private chats are
+  // skipped: a DM with the bot has no events to bet on.
+  guildsWithWallet(tgId) {
+    const key = String(tgId);
+    return Object.entries(this.data.guilds)
+      .filter(([chatKey, g]) => chatKey !== key && g.wallets && g.wallets[key])
+      .map(([chatKey, guild]) => ({ chatKey, guild }));
   }
 
   // Telegram gives a group a new id when it is upgraded to a supergroup. Move everything stored

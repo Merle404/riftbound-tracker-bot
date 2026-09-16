@@ -450,9 +450,8 @@ function wagersMessage({ ev, watch, guild }) {
 
 // ---- messages for commands -----------------------------------------------------------------------
 
-function coinsMessage({ guild, from, watches }) {
-  const me = wallet(guild, from);
-  const key = String(from.id);
+// One line per open bet of a user (by Telegram id) across `watches`, event winner picks included.
+function openBetLines(watches, key) {
   const open = [];
   for (const w of watches) {
     for (const e of openEntries(w)) {
@@ -462,6 +461,13 @@ function coinsMessage({ guild, from, watches }) {
     const pick = w.champ && !w.champ.result ? w.champ.picks[key] : null;
     if (pick) open.push(`🏆 Event winner · ${coins(pick.amount)} on ${fmt.b(pick.name)}${w.name ? ` ${fmt.i(`(${w.name})`)}` : ''}`);
   }
+  return open;
+}
+
+function coinsMessage({ guild, from, watches }) {
+  const me = wallet(guild, from);
+  const key = String(from.id);
+  const open = openBetLines(watches, key);
   const mine = [
     `Balance · ${fmt.b(coins(me.balance))}${open.length ? ` · ${fmt.i(`${open.length} open bet${open.length === 1 ? '' : 's'}`)}` : ''}`,
     `Record · ${fmt.esc(`${me.bets} bets · won ${coins(me.won)} · lost ${coins(me.lost)}`)}`,
@@ -482,11 +488,31 @@ function coinsMessage({ guild, from, watches }) {
   return out.join('\n');
 }
 
+// The DM view: a user's balance and open bets in every chat they bet in, one block per chat.
+// `chats` is [{ chatKey, guild }] from store.guildsWithWallet; read-only apart from the daily income.
+function myCoinsMessage({ chats, from }) {
+  const key = String(from.id);
+  if (!chats.length) return `${COIN} You have no coins yet. Bets are placed in a group chat: /bets there to see the board.`;
+  const out = [`${COIN} ${fmt.b('Your coins and bets')} · ${fmt.i(`${chats.length} chat${chats.length === 1 ? '' : 's'}`)}`];
+  for (const { chatKey, guild } of chats) {
+    const me = wallet(guild, from);
+    const open = openBetLines(Object.values(guild.watches || {}), key);
+    const title = guild.title || `chat ${chatKey}`;
+    const lines = [
+      `${fmt.b(title)}${enabled(guild) ? '' : ` ${fmt.i('(betting off)')}`}`,
+      `Balance · ${fmt.b(coins(me.balance))} · ${fmt.esc(`${me.bets} bets · won ${coins(me.won)} · lost ${coins(me.lost)}`)}`,
+      ...(open.length ? open : [fmt.i('no open bets')]),
+    ];
+    out.push(fmt.quote(lines));
+  }
+  return out.join('\n');
+}
+
 module.exports = {
   START, DAILY, STAKE, WINDOW, COIN, coins, isLocked,
   wallet, wallets, walletName, enabled,
   bets, openRound, keyboard, boardMessages, buttonLabel,
   placeBet, betAnnouncement, openEntries, findOpenPlayer,
-  settle, settledMessage, refundOpen, boardsShowing, coinsMessage, wagersMessage,
+  settle, settledMessage, refundOpen, boardsShowing, coinsMessage, myCoinsMessage, wagersMessage,
   champ, closeChamp, placeChampBet, settleChamp, champMessage, donate, findWallets,
 };
