@@ -4,7 +4,8 @@ const path = require('path');
 
 // Tiny JSON-file persistence. Shape:
 // {
-//   guilds: { [chatId]: { title?, roster: [{ name, tg?, id?, tgId? }], watches: { [eventId]: {...} } } },
+//   guilds: { [chatId]: { title?, roster: [{ name, tg?, id?, tgId? }], watches: { [eventId]: {...} },
+//                         slotWatches: { [eventId]: {...} } } },
 //   users:  { [tgId]: { username, firstName, startedAt, dmSent: { [key]: true } } }  // people who DM'd /start
 // }
 class Store {
@@ -41,6 +42,13 @@ class Store {
 
   roster(guildId) { return this.guild(guildId).roster; }
   watches(guildId) { return this.guild(guildId).watches; }
+
+  // Events watched for a free registration slot (see slots.js).
+  slotWatches(guildId) {
+    const g = this.guild(guildId);
+    if (!g.slotWatches) g.slotWatches = {};
+    return g.slotWatches;
+  }
 
   // A Telegram user who has opened a DM with the bot (only they can receive DMs).
   user(tgId) {
@@ -94,9 +102,10 @@ class Store {
       const names = new Set((old.roster || []).map((e) => e.name.toLowerCase()));
       for (const e of target.roster || []) if (!names.has(e.name.toLowerCase())) old.roster.push(e);
       old.watches = { ...(target.watches || {}), ...(old.watches || {}) };
+      old.slotWatches = { ...(target.slotWatches || {}), ...(old.slotWatches || {}) };
     }
     this.data.guilds[to] = old;
-    for (const w of Object.values(old.watches || {})) {
+    for (const w of [...Object.values(old.watches || {}), ...Object.values(old.slotWatches || {})]) {
       if (String(w.channelId) === from) {
         w.channelId = Number(to);
         w.threadId = null;
@@ -120,6 +129,25 @@ class Store {
       postedPairings: {},
       postedStandings: {},
       finalizedRounds: {},
+      lastError: null,
+    };
+  }
+
+  newSlotWatch({ eventId, channelId, threadId = null, addedBy }) {
+    return {
+      eventId,
+      channelId,
+      threadId,
+      name: null,
+      addedBy,
+      addedAt: new Date().toISOString(),
+      finished: false,
+      capacity: null,
+      registered: null,
+      wasOpen: null, // null = never checked
+      state: null,
+      lastAlertAt: null,
+      checkedAt: null,
       lastError: null,
     };
   }

@@ -4,6 +4,7 @@ const path = require('path');
 const { Bot, GrammyError, HttpError } = require('grammy');
 const { Store } = require('./store');
 const { Tracker } = require('./tracker');
+const { SlotWatcher } = require('./slots');
 const { handlers } = require('./commands');
 const betting = require('./betting');
 
@@ -43,6 +44,9 @@ const tracker = new Tracker({
   },
 });
 
+// Free-slot watches share the tracker's send() (same channelId/threadId fields on the watch).
+const slotWatcher = new SlotWatcher({ store, send: (chatKey, watch, html) => tracker.send(chatKey, watch, html) });
+
 // Group upgraded to a supergroup: carry roster and watches over to the new chat id.
 function migrate(oldId, newId) {
   if (store.migrateGuild(oldId, newId)) console.log(`chat ${oldId} migrated to supergroup ${newId}`);
@@ -50,7 +54,7 @@ function migrate(oldId, newId) {
 bot.on('message:migrate_to_chat_id', (ctx) => migrate(ctx.chat.id, ctx.msg.migrate_to_chat_id));
 bot.on('message:migrate_from_chat_id', (ctx) => migrate(ctx.msg.migrate_from_chat_id, ctx.chat.id));
 
-const deps = { store, tracker, dm, log: console };
+const deps = { store, tracker, slotWatcher, dm, log: console };
 for (const [cmd, fn] of Object.entries(handlers)) {
   bot.command(cmd, async (ctx) => {
     try {
@@ -108,6 +112,7 @@ bot.catch((err) => {
     { command: 'watch', description: 'Track an event: /watch <url> [backfill]' },
     { command: 'unwatch', description: 'Stop tracking an event' },
     { command: 'watching', description: 'List tracked events' },
+    { command: 'slots', description: 'Alert when a full event gets a free slot: /slots <url>' },
     { command: 'team', description: 'Roster: /team add|remove|import|list' },
     { command: 'link', description: 'Get your pairings by DM: /link <roster name>' },
     { command: 'unlink', description: 'Stop DM alerts' },
@@ -127,6 +132,7 @@ bot.catch((err) => {
     { command: 'help', description: 'Show all commands' },
   ]);
   tracker.start();
+  slotWatcher.start();
   console.log('Riftbound Tracker Bot started');
   await bot.start({ allowed_updates: ['message', 'channel_post', 'callback_query'] });
 })();

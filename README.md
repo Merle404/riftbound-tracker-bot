@@ -59,6 +59,7 @@ handle. Two chats tracking the same event with the same player only produce one 
 | `/watch <url or id> [backfill]` | Track an event in this chat. `backfill` also posts every result so far. |
 | `/unwatch [id]` | Stop tracking. |
 | `/watching` | List tracked events and their poll state. |
+| `/slots <url or id>` · `/slots` · `/slots stop [id]` | Alert this chat when a full event gets a free registration slot; list the watches with live numbers; stop. |
 | `/team add <name> [@handle] [id:123]` | Add a roster player. The @handle is pinged in their reports. `id:` pins a Spicerack user id if two players share a name. |
 | `/team remove <name>` · `/team import a, b, c` · `/team list` · `/team clear` | Roster management. |
 | `/link <roster name>` | Link your Telegram account to a roster player to get pairings and results by DM (send the bot `/start` in private first). |
@@ -105,6 +106,15 @@ can be added to the same pick). Picks are open from `/watch` until the bot sees 
 the event. All stakes form a pool; when the event finishes, the pool is split among those who picked
 the champion in proportion to their stakes, and never less than 1:1. If nobody picked the champion,
 or the event ends without standings, everyone is refunded. `/winner` alone shows the pool.
+
+### Free-slot alerts
+
+Events fill up fast. `/slots <url>` in any chat (a group or your DM with the bot) makes the bot check the
+event's `capacity` vs `registered_user_count` every `SLOT_POLL_INTERVAL_SECONDS` (default 60) and post
+🎉 the moment `registered < capacity`, with a link to register. While it stays open it reminds you every
+`SLOT_REMIND_MINUTES` (default 15, `0` = only once), posts 😕 when it fills back up, ℹ️ when the
+registration status changes (closed, waitlist enabled, capacity changed) and 🏁 when the event starts.
+`/slots` lists the watches with live numbers, `/slots stop` removes one.
 
 ### Dry run without Telegram
 

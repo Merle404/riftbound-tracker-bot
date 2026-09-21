@@ -4,6 +4,7 @@ const api = require('./api');
 const ed = require('./eventdata');
 const fmt = require('./format');
 const betting = require('./betting');
+const slots = require('./slots');
 const { interpretMatch, matchRoster, norm, name, fullName, legendShort } = require('./model');
 
 const HELP = `🤖 <b>Riftbound Tracker</b>
@@ -13,6 +14,11 @@ const HELP = `🤖 <b>Riftbound Tracker</b>
 /watch &lt;url&gt; backfill · same, plus every result so far
 /unwatch &lt;event id&gt; · stop tracking
 /watching · tracked events
+
+🎟 <b>Free slots</b> <i>(for events that are already full)</i>
+/slots &lt;event url or id&gt; · alert this chat as soon as a slot opens up
+/slots · slot watches in this chat, with live numbers
+/slots stop [event id] · stop watching
 
 👥 <b>Roster</b> <i>(matched by Spicerack display name or event nickname)</i>
 /team add &lt;name&gt; [@telegram] · add a player, the @handle gets pinged
@@ -278,6 +284,77 @@ const handlers = {
       return `${icon} ${fmt.link(w.name || String(w.eventId), api.eventUrl(w.eventId))} · ${fmt.code(String(w.eventId))} · ${fmt.i(state)}`;
     });
     await reply(ctx, [`📡 ${fmt.b('Watched events')}`, fmt.quote(rows)].join('\n'));
+  },
+
+  // /slots <url>: alert this chat when a full event gets a free registration slot.
+  async slots(ctx, { store, slotWatcher }) {
+    const key = chatKey(ctx);
+    const watches = store.slotWatches(key);
+    const [first, second] = args(ctx).split(/\s+/).filter(Boolean);
+    const listUrl = (w) => fmt.link(w.name || String(w.eventId), api.eventUrl(w.eventId));
+
+    if (!first) {
+      const list = Object.values(watches);
+      if (!list.length) return reply(ctx, warn('Not watching any event for free slots here. Use /slots &lt;url&gt;.'));
+      const rows = [];
+      for (const w of list) {
+        let line;
+        if (w.finished) line = `🏁 ${listUrl(w)} · ${fmt.code(String(w.eventId))} · ${fmt.i('over')}`;
+        else {
+          try {
+            const { s, open } = await slotWatcher.check(key, w);
+            w.lastError = null;
+            line = `${open ? '🟢' : '🔴'} ${listUrl(w)} · ${fmt.code(String(w.eventId))} · ${fmt.b(`${s.registered}/${s.capacity}`)} · ${open ? fmt.b(`${s.free} free`) : 'full'}`;
+          } catch (err) {
+            w.lastError = `${new Date().toISOString()} ${err.message}`;
+            line = `⚠️ ${listUrl(w)} · ${fmt.code(String(w.eventId))} · ${fmt.i(`error: ${fmt.esc(err.message)}`)}`;
+          }
+        }
+        rows.push(line);
+      }
+      store.save();
+      return reply(ctx, [`🎟 ${fmt.b('Slot watches')}`, fmt.quote(rows)].join('\n'));
+    }
+
+    if (/^(stop|off|remove|unwatch)$/i.test(first)) {
+      let eventId = api.parseEventId(second);
+      const active = Object.values(watches).filter((w) => !w.finished);
+      if (!eventId && active.length === 1) eventId = active[0].eventId;
+      if (!eventId && Object.keys(watches).length === 1) eventId = Number(Object.keys(watches)[0]);
+      if (!eventId || !watches[eventId]) return reply(ctx, warn('Not watching that event for slots. See /slots.'));
+      const nm = watches[eventId].name || String(eventId);
+      delete watches[eventId];
+      store.save();
+      return reply(ctx, `🛑 Stopped watching ${fmt.b(nm)} for free slots`);
+    }
+
+    const eventId = api.parseEventId(first);
+    if (!eventId) return reply(ctx, usage('/slots https://locator.riftbound.uvsgames.com/events/926030'));
+    if (watches[eventId] && !watches[eventId].finished) {
+      return reply(ctx, warn(`Already watching ${fmt.b(watches[eventId].name || String(eventId))} for slots here. /slots shows the numbers.`));
+    }
+    const watch = store.newSlotWatch({
+      eventId,
+      channelId: ctx.chat.id,
+      threadId: ctx.msg?.message_thread_id ?? null,
+      addedBy: ctx.from?.id ?? null,
+    });
+    let s;
+    try {
+      s = slots.summarize(await api.event(eventId, { avoidCache: true }));
+    } catch (err) {
+      const why = err.status === 404 ? 'event not found' : err.message;
+      return reply(ctx, warn(`Could not load event ${fmt.code(String(eventId))}: ${fmt.esc(why)}`));
+    }
+    if (!s.capacity) return reply(ctx, warn(`${fmt.link(s.name, s.url)} has no capacity limit, so there is nothing to watch.`));
+    if (slots.isOver(s)) return reply(ctx, warn(`${fmt.link(s.name, s.url)} is already ${fmt.prettyLifecycle(s.lifecycle)}.`));
+    slots.decide(watch, s); // first look: remember the state, no alert
+    watches[eventId] = watch;
+    store.save();
+    const lines = [slots.messages.added(s)];
+    if (slots.isOpen(s)) lines.push(`🎉 ${fmt.b(`${s.free} free right now`)} · ${fmt.link('register', s.url)} · I will remind you every ${slots.REMIND_MINUTES} min while it stays open.`);
+    else lines.push(fmt.i(`I check every ${slots.POLL_SECONDS} s and post here the moment a slot frees up.`));
+    await reply(ctx, lines.join('\n'));
   },
 
   async team(ctx, { store }) {

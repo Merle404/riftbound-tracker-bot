@@ -26,6 +26,13 @@ where in the code it would land.
   season leaderboard with a reset command; re-settle when a judge corrects an already settled
   result (today the first seen result is final); a "close bets N minutes into the round" option.
 
+## 2c. Free-slot alerts for full events — done (2026-09-21)
+- `src/slots.js`: `SlotWatcher` polls `GET /events/{id}/` (`avoid_cache=true`) every
+  `SLOT_POLL_INTERVAL_SECONDS` for every `guild.slotWatches` entry and posts when
+  `registered_user_count < capacity`, reminders every `SLOT_REMIND_MINUTES`, "full again", status
+  changes, and marks the watch finished once the event is in progress. `/slots` in `src/commands.js`.
+- Possible follow-ups: DM the person who added the watch as well as the chat; auto-register.
+
 ## 3. Cross-tournament stats for the roster
 - Persist every reported match (event id, round, player id, opponent id, legends, outcome, score) to
   `data/history.json` from `src/tracker.js`.
